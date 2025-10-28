@@ -1,0 +1,5 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+openai-whisper==20250625
+python-multipart==0.0.9
+# Whisper depends on ffmpeg at runtime; ensure it's installed on the system.
