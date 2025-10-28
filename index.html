@@ -95,6 +95,18 @@
       background: rgba(0,0,0,0.15);
       pointer-events: none;
       z-index: 10;
+      transition: all 0.3s ease;
+    }
+    /* 翻訳専用モード時: 字幕を画面中央、大きく表示 */
+    #subtitle.translation-mode {
+      top: 50%;
+      bottom: auto;
+      transform: translate(-50%, -50%);
+      max-width: 85vw;
+      font-size: 42px;
+      line-height: 1.5;
+      padding: 20px 32px;
+      background: rgba(0,0,0,0.4);
     }
     footer {
       padding: 8px 16px;
@@ -124,6 +136,31 @@
   let wheelCooldown = false;
   const WHEEL_COOLDOWN_MS = 250;
   const WHEEL_THRESHOLD = 10; // 軽い揺れを無視するしきい値
+  
+  // モード切替: 'presentation' (PDF+字幕) or 'translation' (字幕のみ全画面)
+  let currentMode = 'presentation';
+  
+  function setMode(mode) {
+    currentMode = mode;
+    const pdfArea = document.getElementById('pdf-container');
+    const subtitleEl = document.getElementById('subtitle');
+    const pdfControls = document.getElementById('pdf-controls');
+    const modeBtn = document.getElementById('mode-toggle-btn');
+    
+    if (mode === 'translation') {
+      // 翻訳専用モード: PDFを非表示、字幕を画面中央大きく
+      pdfArea.style.display = 'none';
+      pdfControls.style.display = 'none';
+      subtitleEl.classList.add('translation-mode');
+      modeBtn.textContent = 'Presentation Mode';
+    } else {
+      // プレゼンモード: PDFを表示、字幕は下部
+      pdfArea.style.display = 'flex';
+      pdfControls.style.display = 'flex';
+      subtitleEl.classList.remove('translation-mode');
+      modeBtn.textContent = 'Translation Only';
+    }
+  }
 
     // MediaRecorderのサポートするmimeTypeを選択
     function chooseMimeType() {
@@ -445,6 +482,8 @@
     // 初期化: PDFは自動で読み込まず、ファイル選択のみ
     window.addEventListener('DOMContentLoaded', () => {
       document.getElementById('status').textContent = 'Ready. Select a PDF file.';
+      // 初期モードはプレゼンモード
+      setMode('presentation');
       // クリックナビゲーションを有効化（コンテナ全体にクリックリスナ）
       const container = document.getElementById('pdf-container');
       container.addEventListener('click', (ev) => {
@@ -474,12 +513,16 @@
       <button id="startBtn" onclick="startTranslation()">Start Translation</button>
       <button class="secondary" onclick="stopTranslation()">Stop</button>
       <span id="status" aria-live="polite">Idle</span>
-  <span style="flex:1"></span>
-  <!-- PDFの読込（ファイル選択のみ） -->
-  <input id="pdfFile" type="file" accept="application/pdf" onchange="if(this.files[0]) loadPdfFromFile(this.files[0])" />
-      <button class="secondary" onclick="prevPage()">◀ Prev</button>
-      <span id="page-info">-/-</span>
-      <button class="secondary" onclick="nextPage()">Next ▶</button>
+      <span style="flex:1"></span>
+      <!-- モード切替ボタン -->
+      <button id="mode-toggle-btn" class="secondary" onclick="setMode(currentMode === 'presentation' ? 'translation' : 'presentation')">Translation Only</button>
+      <!-- PDFの読込（ファイル選択のみ） -->
+      <span id="pdf-controls" style="display: flex; gap: 8px; align-items: center;">
+        <input id="pdfFile" type="file" accept="application/pdf" onchange="if(this.files[0]) loadPdfFromFile(this.files[0])" />
+        <button class="secondary" onclick="prevPage()">◀ Prev</button>
+        <span id="page-info">-/-</span>
+        <button class="secondary" onclick="nextPage()">Next ▶</button>
+      </span>
     </header>
 
     <main>
