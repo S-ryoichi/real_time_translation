@@ -242,39 +242,39 @@
         ws.binaryType = 'arraybuffer';
 
         ws.onopen = () => {
-          console.log('WebSocket connected:', url);
+          // console.log('WebSocket connected:', url);
           updateStatus('WebSocket connected');
           // サーバ側のバッファをリセット
           try { ws.send('reset'); } catch {}
         };
 
         ws.onclose = () => {
-          console.log('WebSocket closed');
+          // console.log('WebSocket closed');
           updateStatus('WebSocket closed');
         };
 
         ws.onerror = (e) => {
-          console.error('WebSocket error', e);
+          // console.error('WebSocket error', e);
           updateStatus('WebSocket error');
         };
 
         ws.onmessage = (ev) => {
           try {
             const data = JSON.parse(ev.data);
-            console.log('[DEBUG] Received WebSocket message:', data);
+            // console.log('[DEBUG] Received WebSocket message:', data);
             if (data.status === "processing") {
               // Ignore processing status messages (keepalive)
-              console.log('[DEBUG] Processing status received');
+              // console.log('[DEBUG] Processing status received');
               return;
             } else if (data.english !== undefined) {
-              console.log('[DEBUG] English translation received:', data.english);
+              // console.log('[DEBUG] English translation received:', data.english);
               appendTranslation('', data.english);
             } else if (data.error) {
               console.error('Server error:', data.error);
               updateStatus('Error: ' + data.error);
             }
           } catch (err) {
-            console.warn('Non-JSON message:', ev.data);
+            // console.warn('Non-JSON message:', ev.data);
           }
         };
 
@@ -295,17 +295,17 @@
         let recordingTimeout = null;
 
         mediaRecorder.addEventListener('dataavailable', async (ev) => {
-          console.log('[DEBUG] dataavailable event fired, size:', ev.data?.size);
+          // console.log('[DEBUG] dataavailable event fired, size:', ev.data?.size);
           if (!ev.data || ev.data.size === 0) {
-            console.warn('[DEBUG] Empty audio data, skipping');
+            // console.warn('[DEBUG] Empty audio data, skipping');
             return;
           }
           if (!ws || ws.readyState !== WebSocket.OPEN) {
-            console.warn('[DEBUG] WebSocket not open, state:', ws?.readyState);
+            // console.warn('[DEBUG] WebSocket not open, state:', ws?.readyState);
             return;
           }
           const buf = await ev.data.arrayBuffer();
-          console.log('[DEBUG] Sending audio chunk, bytes:', buf.byteLength);
+          // console.log('[DEBUG] Sending audio chunk, bytes:', buf.byteLength);
           ws.send(buf); // バイナリを /ws へ送信
         });
 
@@ -320,13 +320,13 @@
           window.recordingTimeout = setTimeout(() => {
             if (!isRecording || !mediaRecorder || mediaRecorder.state !== 'recording') return;
 
-            console.log('[DEBUG] Stopping MediaRecorder to finalize chunk...');
+            // console.log('[DEBUG] Stopping MediaRecorder to finalize chunk...');
             mediaRecorder.stop();
 
             // データが送信されるまで少し待ってから再起動
             setTimeout(() => {
               if (!isRecording || !mediaRecorder) return;
-              console.log('[DEBUG] Restarting MediaRecorder...');
+              // console.log('[DEBUG] Restarting MediaRecorder...');
               mediaRecorder.start();
               scheduleRecordingCycle();
             }, 100);
