@@ -45,7 +45,9 @@ def load_model_on_startup():
     Storing the model in app.state prevents reloading on each request.
     """
     device = _detect_device()
-    model_name = "small"
+    # Use "base" model for faster processing (trade-off: slightly lower accuracy)
+    # Options: tiny (fastest) -> base -> small -> medium -> large (most accurate)
+    model_name = "base"
     # Load Whisper model. If running on CPU, fp16 will be disabled at inference time.
     model = whisper.load_model(model_name, device=device)
     app.state.model = model
@@ -101,30 +103,56 @@ async def _transcribe_bytes_async(audio_bytes: bytes, *, suffix: str = ".webm") 
             raise
 
     def _blocking_transcribe() -> str:
+        # Check if audio data is too small (likely invalid)
+        # Reduced threshold to 256 bytes to accommodate various audio formats
+        MIN_AUDIO_SIZE = 256  # 256 bytes minimum
+        print(f"[DEBUG] Audio bytes length: {len(audio_bytes)}")
+        if len(audio_bytes) < MIN_AUDIO_SIZE:
+            print(f"[DEBUG] Audio too small ({len(audio_bytes)} < {MIN_AUDIO_SIZE}), skipping")
+            return ""  # Return empty string for too-small chunks
+
         tmp_path = None
+        wav_path = None
         try:
             with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 tmp.write(audio_bytes)
                 tmp_path = tmp.name
-            # Convert to WAV for more robust decoding of short MediaRecorder chunks
-            wav_path = _ffmpeg_convert_to_wav(tmp_path)
+            print(f"[DEBUG] Wrote audio to temp file: {tmp_path}")
+
+            # Try to convert to WAV, but skip if conversion fails (invalid header)
+            try:
+                print(f"[DEBUG] Starting ffmpeg conversion...")
+                wav_path = _ffmpeg_convert_to_wav(tmp_path)
+                audio_file = wav_path
+                print(f"[DEBUG] FFmpeg conversion successful: {wav_path}")
+            except Exception as conv_err:
+                # If conversion fails, return empty (invalid audio chunk)
+                print(f"[DEBUG] FFmpeg conversion failed: {conv_err}")
+                return ""
+
             try:
                 # Get English translation
+                print(f"[DEBUG] Starting Whisper transcription...")
                 result = model.transcribe(
-                    wav_path,
+                    audio_file,
                     task="translate",
                     language="ja",
                     fp16=(device == "cuda"),
                 )
                 english_text = (result.get("text") or "").strip()
-
+                print(f"[DEBUG] Whisper raw result: {result}")
+                print(f"[DEBUG] Whisper extracted text: '{english_text}'")
+                return english_text
+            except Exception as transcribe_err:
+                # If Whisper fails, return empty string
+                print(f"[DEBUG] Whisper transcription failed: {transcribe_err}")
+                return ""
             finally:
                 if wav_path and os.path.exists(wav_path):
                     try:
                         os.remove(wav_path)
                     except Exception:
                         pass
-            return english_text
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 try:
@@ -249,7 +277,10 @@ async def ws_translate(websocket: WebSocket):
     # Optional: you could accept an initial text message specifying mime, e.g., {"mime":"audio/webm"}
     # Per-connection state
     mime_suffix = ".webm"  # default; can be updated via a text control message from client
-    buffer_bytes = bytearray()  # accumulate to ensure valid headers for short chunks
+
+    # Keep only the most recent chunk instead of accumulating all audio
+    # This significantly improves processing speed
+    current_chunk = bytearray()
 
     try:
         while True:
@@ -262,20 +293,40 @@ async def ws_translate(websocket: WebSocket):
 
             if "bytes" in message and message["bytes"] is not None:
                 chunk: bytes = message["bytes"]
+                print(f"[DEBUG] Received audio chunk: {len(chunk)} bytes")
                 if not chunk:
-                    await websocket.send_json({"text": ""})
+                    await websocket.send_json({"english": ""})
                     continue
 
-                # Append to buffer to preserve headers from the first chunk
-                buffer_bytes.extend(chunk)
+                # Replace buffer with the latest chunk (no accumulation)
+                # This trades context for speed
+                current_chunk = bytearray(chunk)
 
                 try:
-                    result = await _transcribe_bytes_async(bytes(buffer_bytes), suffix=mime_suffix)
-                    await websocket.send_json({
-                        "english": result
-                    })
+                    # Send processing acknowledgement to keep connection alive
+                    if websocket.client_state.name == "CONNECTED":
+                        await websocket.send_json({"status": "processing"})
+                        print("[DEBUG] Sent processing status")
+
+                    print(f"[DEBUG] Starting transcription of {len(current_chunk)} bytes")
+                    result = await _transcribe_bytes_async(bytes(current_chunk), suffix=mime_suffix)
+                    print(f"[DEBUG] Transcription result: '{result}'")
+
+                    # Check if WebSocket is still open before sending
+                    if websocket.client_state.name == "CONNECTED":
+                        await websocket.send_json({
+                            "english": result
+                        })
+                        print(f"[DEBUG] Sent translation result")
+                except WebSocketDisconnect:
+                    # Client disconnected, exit gracefully
+                    print("[DEBUG] WebSocket disconnected")
+                    break
                 except Exception as e:
-                    await websocket.send_json({"error": f"transcription_failed: {e}"})
+                    # Only send error if connection is still open
+                    print(f"[DEBUG] Error during transcription: {e}")
+                    if websocket.client_state.name == "CONNECTED":
+                        await websocket.send_json({"error": f"transcription_failed: {e}"})
 
             elif "text" in message and message["text"] is not None:
                 # Handle simple control messages from client
@@ -285,7 +336,7 @@ async def ws_translate(websocket: WebSocket):
                     await websocket.close(code=1000)
                     break
                 elif txt_low == "reset":
-                    buffer_bytes.clear()
+                    current_chunk.clear()
                     await websocket.send_json({"info": "buffer_reset"})
                 else:
                     # Try to parse MIME hint as JSON or simple 'mime: ...'
@@ -345,6 +396,13 @@ def serve_index():
     if os.path.exists(index_path):
         return FileResponse(index_path, media_type="text/html")
     return JSONResponse({"detail": "index.html not found"}, status_code=404)
+
+
+@app.get("/favicon.ico")
+def serve_favicon():
+    """Return 204 No Content for favicon requests to suppress 404 errors."""
+    from fastapi.responses import Response
+    return Response(status_code=204)
 
 
 if __name__ == "__main__":
