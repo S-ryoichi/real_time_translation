@@ -4,9 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Realtime JA→EN Translation</title>
-  <!-- pdf.js (CDN via unpkg: pdfjs-dist) -->
-  <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <style>
+    /* ========== 全体レイアウト ========== */
     html, body {
       height: 100%;
       margin: 0;
@@ -15,117 +14,195 @@
       font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans JP", sans-serif;
     }
     .wrap {
-      display: grid;
-      grid-template-rows: auto 1fr auto;
+      display: flex;
+      flex-direction: column;
       height: 100%;
     }
+
+    /* ========== ヘッダー（コントロールエリア） ========== */
     header {
       padding: 12px 16px;
       display: flex;
-      gap: 8px;
+      gap: 12px;
       align-items: center;
       border-bottom: 1px solid #2a2a2a;
+      flex-wrap: wrap;
+      background: #1a1a1a;
     }
     header button {
       background: #2d6cdf;
       color: #fff;
       border: none;
-      padding: 8px 12px;
+      padding: 10px 16px;
       border-radius: 6px;
       cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.2s ease;
+    }
+    header button:hover {
+      background: #2558b8;
     }
     header button.secondary {
       background: #444;
     }
-    header input[type="text"] {
-      flex: 1;
-      min-width: 200px;
-      padding: 6px 8px;
+    header button.secondary:hover {
+      background: #555;
+    }
+    header button.danger {
+      background: #c53030;
+    }
+    header button.danger:hover {
+      background: #9b2c2c;
+    }
+    /* 録音中のスタートボタンのスタイル */
+    header button#startBtn.recording {
+      background: #e53e3e;
+      animation: pulse 1.5s ease-in-out infinite;
+      box-shadow: 0 0 10px rgba(229, 62, 62, 0.5);
+    }
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+        box-shadow: 0 0 10px rgba(229, 62, 62, 0.5);
+      }
+      50% {
+        opacity: 0.8;
+        box-shadow: 0 0 20px rgba(229, 62, 62, 0.8);
+      }
+    }
+    header select {
+      padding: 8px 12px;
       border-radius: 6px;
       border: 1px solid #333;
       background: #1b1b1b;
       color: #eee;
+      font-size: 14px;
     }
+    #status {
+      flex: 1;
+      min-width: 150px;
+      font-size: 13px;
+      color: #aaa;
+      font-weight: 500;
+    }
+    #status.recording {
+      color: #fc8181;
+      font-weight: 600;
+    }
+
+    /* ========== メインエリア（翻訳結果表示） ========== */
     main {
-      position: relative;
-      display: grid;
-      grid-template-rows: 1fr;
-      overflow: hidden;
-    }
-    #pdf-container {
-      position: relative;
-      height: 100%;
+      flex: 1;
       display: flex;
-      justify-content: center;   /* 水平方向センター */
-      align-items: flex-start;   /* 上に寄せる */
-      padding-top: 8px;
-      padding-bottom: 64px;      /* 字幕と被らないように少し余白 */
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
     }
-    #pdf-canvas {
-      /* 実サイズはJSで設定（canvas.width/height）。CSSは最大幅の上限のみ */
-      max-width: 95vw;
-      height: auto;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-      background: #fff;
+
+    #translation-output {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+      line-height: 1.8;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      scroll-behavior: smooth;
     }
-    /* ネイティブPDFビューア用 iframe（pdf.jsが使えない場合のフォールバック） */
-    #pdf-iframe {
-      width: 100%;
-      max-width: 95vw;
-      height: 80vh; /* 初期値。実際はJSでウィンドウに合わせて更新 */
-      border: none;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-      background: #fff;
-      display: none; /* 通常は非表示。フォールバック時のみ表示 */
+
+    /* 文字サイズのクラス */
+    #translation-output.size-small { font-size: 18px; }
+    #translation-output.size-medium { font-size: 28px; }
+    #translation-output.size-large { font-size: 42px; }
+    #translation-output.size-xlarge { font-size: 56px; }
+
+    /* プレースホルダー表示 */
+    #translation-output:empty::before {
+      content: "English translation will appear here...";
+      color: #555;
+      font-style: italic;
     }
-    /* 字幕: 画面下部中央に重ね表示（白文字＋黒シャドウ） */
-    #subtitle {
-      position: fixed;
-      left: 50%;
-      bottom: 12px;
-      transform: translateX(-50%);
-      max-width: 90vw;
-      text-align: center;
-      font-size: 22px;
-      line-height: 1.35;
-      color: #fff;
-      text-shadow: 0 0 3px #000, 0 0 6px #000, 0 0 12px #000;
-      padding: 6px 10px;
-      border-radius: 8px;
-      background: rgba(0,0,0,0.15);
-      pointer-events: none;
-      z-index: 10;
-    }
+
+    /* ========== フッター ========== */
     footer {
       padding: 8px 16px;
       font-size: 12px;
-      color: #aaa;
+      color: #777;
       border-top: 1px solid #2a2a2a;
+      background: #1a1a1a;
+      text-align: center;
+    }
+
+    /* ========== スクロールバーのスタイル（Webkit系ブラウザ） ========== */
+    #translation-output::-webkit-scrollbar {
+      width: 10px;
+    }
+    #translation-output::-webkit-scrollbar-track {
+      background: #1a1a1a;
+    }
+    #translation-output::-webkit-scrollbar-thumb {
+      background: #444;
+      border-radius: 5px;
+    }
+    #translation-output::-webkit-scrollbar-thumb:hover {
+      background: #555;
     }
   </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <!-- 録音開始/停止ボタン -->
+      <button id="startBtn" onclick="toggleRecording()">Start Recording</button>
+
+      <!-- クリアボタン -->
+      <button class="danger" onclick="clearTranslation()">Clear</button>
+
+      <!-- 翻訳頻度選択 -->
+      <label for="segmentInterval" style="color: #aaa; font-size: 13px;">Interval:</label>
+      <select id="segmentInterval">
+        <option value="5000">5 sec</option>
+        <option value="10000" selected>10 sec</option>
+        <option value="15000">15 sec</option>
+        <option value="20000">20 sec</option>
+      </select>
+
+      <!-- 文字サイズ選択 -->
+      <label for="fontSize" style="color: #aaa; font-size: 13px;">Font Size:</label>
+      <select id="fontSize" onchange="changeFontSize()">
+        <option value="small">Small (18px)</option>
+        <option value="medium" selected>Medium (28px)</option>
+        <option value="large">Large (42px)</option>
+        <option value="xlarge">X-Large (56px)</option>
+      </select>
+
+      <!-- ステータス表示 -->
+      <span id="status">Ready</span>
+    </header>
+
+    <main>
+      <!-- 翻訳結果表示エリア -->
+      <div id="translation-output" class="size-medium"></div>
+    </main>
+
+    <footer>
+      Real-time Japanese → English Translation | WebSocket connected to localhost:8000
+    </footer>
+  </div>
+
   <script>
-    // pdf.js worker 設定（unpkgの同バージョンに合わせる）
-    const PDFJS_BASE = 'https://unpkg.com/pdfjs-dist@3.11.174/build';
-    if (window.pdfjsLib) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.js`;
-    }
-
-    // WebSocket URL: 要望により常に localhost:8000 を使用
-    function getWsUrl() {
-      return 'ws://localhost:8000/ws';
-    }
-
+    // ========== グローバル変数 ==========
     let mediaRecorder = null;
     let ws = null;
     let isRecording = false;
     let mime = '';
-  const SEGMENT_MS = 10000; // 送信間隔（ミリ秒）: 6秒ごとに1チャンク送信
-  // ホイール連打対策
-  let wheelCooldown = false;
-  const WHEEL_COOLDOWN_MS = 250;
-  const WHEEL_THRESHOLD = 10; // 軽い揺れを無視するしきい値
 
-    // MediaRecorderのサポートするmimeTypeを選択
+    // WebSocket URL
+    function getWsUrl() {
+      return 'ws://localhost:8000/ws';
+    }
+
+    // ========== MediaRecorderのサポートするMIMEタイプを選択 ==========
     function chooseMimeType() {
       const candidates = [
         'audio/webm;codecs=opus',
@@ -140,361 +217,212 @@
       return '';
     }
 
-    async function startTranslation() {
-      if (isRecording) return;
-
-      // 1) WebSocket接続
-      const url = getWsUrl();
-      ws = new WebSocket(url);
-      ws.binaryType = 'arraybuffer';
-
-      ws.onopen = () => {
-        console.log('WebSocket connected:', url);
-        document.getElementById('status').textContent = 'WebSocket connected';
-        // サーバ側のバッファを初期化
-        try { ws.send('reset'); } catch {}
-      };
-      ws.onclose = () => {
-        console.log('WebSocket closed');
-        document.getElementById('status').textContent = 'WebSocket closed';
-      };
-      ws.onerror = (e) => {
-        console.error('WebSocket error', e);
-        document.getElementById('status').textContent = 'WebSocket error';
-      };
-      ws.onmessage = (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-          if (typeof data.text === 'string') {
-            updateSubtitle(data.text);
-          } else if (data.error) {
-            console.error('Server error:', data.error);
-          }
-        } catch (err) {
-          console.warn('Non-JSON message:', ev.data);
-        }
-      };
-
-      // 2) マイク取得とMediaRecorder開始（約2秒ごとにチャンク送信）
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mime = chooseMimeType();
-  mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-  // サーバへMIMEヒントを送る（例: {"mime":"audio/webm;codecs=opus"}）
-  try { ws?.send(JSON.stringify({ mime })); } catch {}
-
-      mediaRecorder.addEventListener('dataavailable', async (ev) => {
-        if (!ev.data || ev.data.size === 0) return;
-        if (!ws || ws.readyState !== WebSocket.OPEN) return;
-        const buf = await ev.data.arrayBuffer();
-        ws.send(buf); // バイナリを /ws へ送信
-      });
-
-  // SEGMENT_MS ごとにデータを区切って送信（デフォルト6秒）
-  mediaRecorder.start(SEGMENT_MS);
-      isRecording = true;
-  document.getElementById('status').textContent = `Recording... (${mime || 'default'}, segment ${SEGMENT_MS/1000}s)`;
+    // ========== 録音開始/停止トグル ==========
+    async function toggleRecording() {
+      if (isRecording) {
+        stopRecording();
+      } else {
+        await startRecording();
+      }
     }
 
-    function stopTranslation() {
+    // ========== 録音開始 ==========
+    async function startRecording() {
+      if (isRecording) return;
+
+      // 録音開始時に前回のテキスト履歴をリセット
+      lastDisplayedText = '';
+
+      try {
+        // 1) WebSocket接続
+        const url = getWsUrl();
+        ws = new WebSocket(url);
+        ws.binaryType = 'arraybuffer';
+
+        ws.onopen = () => {
+          console.log('WebSocket connected:', url);
+          updateStatus('WebSocket connected');
+          // サーバ側のバッファをリセット
+          try { ws.send('reset'); } catch {}
+        };
+
+        ws.onclose = () => {
+          console.log('WebSocket closed');
+          updateStatus('WebSocket closed');
+        };
+
+        ws.onerror = (e) => {
+          console.error('WebSocket error', e);
+          updateStatus('WebSocket error');
+        };
+
+        ws.onmessage = (ev) => {
+          try {
+            const data = JSON.parse(ev.data);
+            if (data.english !== undefined) {
+              appendTranslation('', data.english);
+            } else if (data.error) {
+              console.error('Server error:', data.error);
+              updateStatus('Error: ' + data.error);
+            }
+          } catch (err) {
+            console.warn('Non-JSON message:', ev.data);
+          }
+        };
+
+        // 2) マイク取得
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mime = chooseMimeType();
+        mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+
+        // サーバへMIMEヒントを送る
+        try {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ mime }));
+          }
+        } catch {}
+
+        // 3) MediaRecorderのデータ送信
+        mediaRecorder.addEventListener('dataavailable', async (ev) => {
+          if (!ev.data || ev.data.size === 0) return;
+          if (!ws || ws.readyState !== WebSocket.OPEN) return;
+          const buf = await ev.data.arrayBuffer();
+          ws.send(buf); // バイナリを /ws へ送信
+        });
+
+        // 選択された間隔でデータを区切って送信
+        const segmentSelect = document.getElementById('segmentInterval');
+        const segmentMs = parseInt(segmentSelect.value);
+        mediaRecorder.start(segmentMs);
+        isRecording = true;
+
+        // UIを更新
+        const startBtn = document.getElementById('startBtn');
+        const statusEl = document.getElementById('status');
+        startBtn.textContent = 'Stop Recording';
+        startBtn.classList.add('recording');
+        statusEl.classList.add('recording');
+        updateStatus(`🔴 Recording... (${mime || 'default'}, ${segmentMs / 1000}s chunks)`);
+
+      } catch (error) {
+        console.error('Failed to start recording:', error);
+        updateStatus('Error: ' + error.message);
+        alert('マイクへのアクセスに失敗しました。ブラウザの設定を確認してください。');
+      }
+    }
+
+    // ========== 録音停止 ==========
+    function stopRecording() {
       if (!isRecording) return;
-      try { mediaRecorder?.stop(); } catch {}
+
+      try {
+        if (mediaRecorder) {
+          mediaRecorder.stop();
+          // マイクストリームを停止
+          mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        }
+      } catch {}
+
       mediaRecorder = null;
       isRecording = false;
+
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send('stop'); // サーバに終了意図をテキストで通知（任意）
+        ws.send('stop'); // サーバに終了を通知
         ws.close();
       }
       ws = null;
-      document.getElementById('status').textContent = 'Stopped';
+
+      // UIを更新
+      const startBtn = document.getElementById('startBtn');
+      const statusEl = document.getElementById('status');
+      startBtn.textContent = 'Start Recording';
+      startBtn.classList.remove('recording');
+      statusEl.classList.remove('recording');
+      updateStatus('Stopped');
     }
 
-    function updateSubtitle(text) {
-      const el = document.getElementById('subtitle');
-      const s = (text || '').trim();
-      // 文単位に分割（日本語/英語の句読点に対応）
-      const parts = s.match(/[^。．！？!?]+[。．！？!?]?/g) || [];
-      const last4 = parts.slice(-4);
-      el.textContent = last4.join(' ');
-    }
+    // ========== 前回表示したテキストを保持（重複除外用） ==========
+    let lastDisplayedText = '';
 
-    // -------- PDF viewer (pdf.js) --------
-  let pdfDoc = null;
-    let currentPage = 1;
-    let renderInProgress = false;
-    const isFileProtocol = window.location.protocol === 'file:';
-  let currentBlobUrl = null; // フォールバック時のURL解放用
+    // ========== 翻訳結果をリアルタイムで追記 ==========
+    function appendTranslation(japaneseText, englishText) {
+      const outputEl = document.getElementById('translation-output');
 
-    async function getPdfDocument(params) {
-      // 一部環境ではWorkerが使えない/ブロックされるため、失敗時はdisableWorkerでフォールバック
-      if (!window.pdfjsLib) {
-        throw new Error('pdfjsLib is not available');
+      // 英語テキストのみ使用
+      const trimmedText = (englishText || '').trim();
+
+      // 空なら何もしない
+      if (!trimmedText) return;
+
+      // 前回と同じなら何もしない
+      if (trimmedText === lastDisplayedText) return;
+
+      // 差分を取得
+      let newText = '';
+      if (lastDisplayedText && trimmedText.startsWith(lastDisplayedText)) {
+        // 差分を取得（trimせずに空白も保持）
+        newText = trimmedText.substring(lastDisplayedText.length);
+        // 先頭の空白のみ削除
+        newText = newText.replace(/^\s+/, '');
+      } else {
+        newText = trimmedText;
       }
-      const withDefault = isFileProtocol ? { ...params, disableWorker: true } : params;
-      try {
-        const task = pdfjsLib.getDocument(withDefault);
-        return await task.promise;
-      } catch (e) {
-        console.warn('pdf.js worker load failed, retrying without worker...', e);
-        if (!withDefault.disableWorker) {
-          const task2 = pdfjsLib.getDocument({ ...withDefault, disableWorker: true });
-          return await task2.promise;
+
+      // 表示
+      if (newText) {
+        // 改行ロジック: ピリオド、疑問符、感嘆符の後にスペースがある場合は改行
+        const processedText = newText.replace(/([.!?])\s+/g, '$1\n');
+        if (outputEl.textContent) {
+          outputEl.textContent += '\n' + processedText;
+        } else {
+          outputEl.textContent = processedText;
         }
-        throw e;
+        // 自動スクロール
+        outputEl.scrollTop = outputEl.scrollHeight;
+        // 最後に表示したテキストを更新
+        lastDisplayedText = trimmedText;
       }
     }
 
-    async function loadPdfFromUrl(url) {
-      try {
-        pdfDoc = await getPdfDocument(url);
-        currentPage = 1;
-        await renderPage(currentPage);
-        document.getElementById('page-info').textContent = `${currentPage} / ${pdfDoc.numPages}`;
-      } catch (e) {
-        console.error('Failed to load PDF:', e);
-        document.getElementById('status').textContent = `PDF load error: ${e && e.message ? e.message : e}`;
-        alert('PDFの読み込みに失敗しました。URLまたはネットワークを確認してください。\nローカルPDFを選択することもできます。');
-      }
+    // ========== 翻訳結果をクリア ==========
+    function clearTranslation() {
+      const outputEl = document.getElementById('translation-output');
+      outputEl.textContent = '';
+      // 前回表示テキストもリセット
+      lastDisplayedText = '';
+      updateStatus('Translation output cleared');
     }
 
-    async function loadPdfFromFile(file) {
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        // pdf.jsが使えるならpdf.jsで描画、使えないならiframeで表示
-        try {
-          pdfDoc = await getPdfDocument({ data: arrayBuffer });
-          // pdf.js描画モード: iframeを隠しcanvasを表示
-          togglePdfMode('canvas');
-          currentPage = 1;
-          await renderPage(currentPage);
-          document.getElementById('page-info').textContent = `${currentPage} / ${pdfDoc.numPages}`;
-        } catch (inner) {
-          console.warn('Falling back to native PDF viewer:', inner);
-          // フォールバック: Blob URLをiframeに表示
-          const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
-          if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
-          currentBlobUrl = URL.createObjectURL(blob);
-          const iframe = document.getElementById('pdf-iframe');
-          iframe.src = currentBlobUrl;
-          togglePdfMode('iframe');
-          document.getElementById('page-info').textContent = `Native viewer`;
-          document.getElementById('status').textContent = 'Using native PDF viewer (fallback).';
-        }
-      } catch (e) {
-        console.error('Failed to load local PDF:', e);
-        document.getElementById('status').textContent = `Local PDF error: ${e && e.message ? e.message : e}`;
-        alert('ローカルPDFの読み込みに失敗しました。別のPDFで試すか、ブラウザのセキュリティ設定/拡張機能をご確認ください。');
-      }
+    // ========== 文字サイズ変更 ==========
+    function changeFontSize() {
+      const outputEl = document.getElementById('translation-output');
+      const select = document.getElementById('fontSize');
+      const size = select.value;
+
+      // 既存のサイズクラスを削除
+      outputEl.classList.remove('size-small', 'size-medium', 'size-large', 'size-xlarge');
+
+      // 新しいサイズクラスを追加
+      outputEl.classList.add('size-' + size);
     }
 
-    function togglePdfMode(mode) {
-      const canvas = document.getElementById('pdf-canvas');
-      const iframe = document.getElementById('pdf-iframe');
-      if (mode === 'canvas') {
-        canvas.style.display = '';
-        iframe.style.display = 'none';
-      } else {
-        canvas.style.display = 'none';
-        iframe.style.display = '';
-      }
+    // ========== ステータス更新 ==========
+    function updateStatus(message) {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = message;
     }
 
-    function getAvailableDims() {
-      // ヘッダー/フッター/字幕の占有分を除き、利用可能領域を計算
-      const header = document.querySelector('header');
-      const footer = document.querySelector('footer');
-      const subtitleReserve = 72; // 字幕回避用
-      const verticalPadding = 16; // containerの上下padding相当
-      const width = Math.max(320, window.innerWidth - 24);
-      const height = Math.max(
-        240,
-        window.innerHeight - (header?.offsetHeight || 0) - (footer?.offsetHeight || 0) - subtitleReserve - verticalPadding
-      );
-      return { width, height };
-    }
-
-    async function renderPage(num) {
-      if (!pdfDoc || renderInProgress) return;
-      renderInProgress = true;
-      const page = await pdfDoc.getPage(num);
-      const base = page.getViewport({ scale: 1.0 });
-      const { width: availW, height: availH } = getAvailableDims();
-      const scale = Math.min(availW / base.width, availH / base.height);
-      const viewport = page.getViewport({ scale });
-      const canvas = document.getElementById('pdf-canvas');
-      const ctx = canvas.getContext('2d');
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      await page.render({ canvasContext: ctx, viewport }).promise;
-      renderInProgress = false;
-    }
-
-    async function prevPage() {
-      if (!pdfDoc) return;
-      currentPage = Math.max(1, currentPage - 1);
-      await renderPage(currentPage);
-      document.getElementById('page-info').textContent = `${currentPage} / ${pdfDoc.numPages}`;
-    }
-    async function nextPage() {
-      if (!pdfDoc) return;
-      currentPage = Math.min(pdfDoc.numPages, currentPage + 1);
-      await renderPage(currentPage);
-      document.getElementById('page-info').textContent = `${currentPage} / ${pdfDoc.numPages}`;
-    }
-
-    window.addEventListener('resize', () => {
-      // ウィンドウリサイズ時に再レンダリング
-      if (pdfDoc) {
-        renderPage(currentPage);
-      } else {
-        // フォールバック時はiframeの高さだけ更新
-        const iframe = document.getElementById('pdf-iframe');
-        if (iframe && iframe.style.display !== 'none') {
-          const { height } = getAvailableDims();
-          iframe.style.height = `${height}px`;
-        }
-      }
-    });
-
-    // ---- クリックでスライド送り（左半分=Prev / 右半分=Next）----
-    function handleClickNavigate(ev) {
-      if (!pdfDoc) return; // pdf.jsがない場合は何もしない（ネイティブビューアは独自UIに任せる）
-      const container = document.getElementById('pdf-container');
-      const rect = container.getBoundingClientRect();
-      const x = ev.clientX - rect.left;
-      if (x >= rect.width / 2) {
-        nextPage();
-      } else {
-        prevPage();
-      }
-    }
-
-    // ---- キーボードでスライド送り（← = Prev / → = Next）----
-    function handleKeyNavigate(ev) {
-      if (!pdfDoc) return;
-      // 入力要素にフォーカスがある場合はスキップ
-      const tag = (ev.target && ev.target.tagName) ? ev.target.tagName.toLowerCase() : '';
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-      if (ev.key === 'ArrowRight') {
-        ev.preventDefault();
-        nextPage();
-      } else if (ev.key === 'ArrowLeft') {
-        ev.preventDefault();
-        prevPage();
-      }
-    }
-
-    // ---- ホイールでスライド送り（下=Next / 上=Prev）----
-    function handleWheelNavigate(ev) {
-      if (!pdfDoc) return;
-      if (wheelCooldown) return;
-      // iframe表示時はスキップ（ネイティブビューアに任せる）
-      const iframe = document.getElementById('pdf-iframe');
-      if (iframe && iframe.style.display !== 'none') return;
-
-      // 垂直スクロール量で判定
-      const dy = ev.deltaY || 0;
-      if (Math.abs(dy) < WHEEL_THRESHOLD) return;
-
-      ev.preventDefault();
-      if (dy > 0) {
-        nextPage();
-      } else {
-        prevPage();
-      }
-      wheelCooldown = true;
-      setTimeout(() => (wheelCooldown = false), WHEEL_COOLDOWN_MS);
-    }
-
-    // ---- フルスクリーン制御 ----
-    function isFullscreen() {
-      return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement;
-    }
-    function requestFs(el) {
-      const anyEl = el;
-      if (anyEl.requestFullscreen) return anyEl.requestFullscreen();
-      if (anyEl.webkitRequestFullscreen) return anyEl.webkitRequestFullscreen();
-      if (anyEl.msRequestFullscreen) return anyEl.msRequestFullscreen();
-    }
-    function exitFs() {
-      const anyDoc = document;
-      if (document.exitFullscreen) return document.exitFullscreen();
-      if (anyDoc.webkitExitFullscreen) return anyDoc.webkitExitFullscreen();
-      if (anyDoc.msExitFullscreen) return anyDoc.msExitFullscreen();
-    }
-    function handleFullscreenToggle() {
-      const container = document.getElementById('pdf-container');
-      if (isFullscreen()) {
-        exitFs();
-      } else {
-        requestFs(container);
-      }
-    }
-    document.addEventListener('fullscreenchange', () => {
-      // フルスクリーンの入退出時に再レイアウト
-      if (pdfDoc) {
-        renderPage(currentPage);
-      } else {
-        const iframe = document.getElementById('pdf-iframe');
-        if (iframe && iframe.style.display !== 'none') {
-          const { height } = getAvailableDims();
-          iframe.style.height = `${height}px`;
-        }
-      }
-    });
-
-    // 初期化: PDFは自動で読み込まず、ファイル選択のみ
+    // ========== 初期化 ==========
     window.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('status').textContent = 'Ready. Select a PDF file.';
-      // クリックナビゲーションを有効化（コンテナ全体にクリックリスナ）
-      const container = document.getElementById('pdf-container');
-      container.addEventListener('click', (ev) => {
-        // iframe表示時はブラウザ組み込みUIを尊重してスキップ
-        const iframe = document.getElementById('pdf-iframe');
-        if (iframe && iframe.style.display !== 'none') return;
-        // ダブルクリック（detail>1）はフルスクリーン切替に委ねるのでスキップ
-        if (ev.detail && ev.detail > 1) return;
-        handleClickNavigate(ev);
-      });
-      // ダブルクリックでフルスクリーン切替
-      container.addEventListener('dblclick', (ev) => {
-        ev.preventDefault();
-        handleFullscreenToggle();
-      });
-      // マウスホイールで前後
-      container.addEventListener('wheel', handleWheelNavigate, { passive: false });
-      // キーボードナビゲーション
-      window.addEventListener('keydown', handleKeyNavigate);
+      updateStatus('Ready. Click "Start Recording" to begin.');
+    });
+
+    // ========== ページ離脱時のクリーンアップ ==========
+    window.addEventListener('beforeunload', () => {
+      if (isRecording) {
+        stopRecording();
+      }
     });
   </script>
-</head>
-<body>
-  <div class="wrap">
-    <header>
-      <!-- M3要件: Startボタン、2秒ごとに音声チャンク送信 -->
-      <button id="startBtn" onclick="startTranslation()">Start Translation</button>
-      <button class="secondary" onclick="stopTranslation()">Stop</button>
-      <span id="status" aria-live="polite">Idle</span>
-  <span style="flex:1"></span>
-  <!-- PDFの読込（ファイル選択のみ） -->
-  <input id="pdfFile" type="file" accept="application/pdf" onchange="if(this.files[0]) loadPdfFromFile(this.files[0])" />
-      <button class="secondary" onclick="prevPage()">◀ Prev</button>
-      <span id="page-info">-/-</span>
-      <button class="secondary" onclick="nextPage()">Next ▶</button>
-    </header>
-
-    <main>
-      <div id="pdf-container">
-        <!-- PDFは通常このキャンバスにレンダリング（pdf.js利用）。未利用時はiframeにフォールバック -->
-        <canvas id="pdf-canvas" aria-label="PDF slide"></canvas>
-        <iframe id="pdf-iframe" title="PDF slide (native)"></iframe>
-      </div>
-      <!-- M3要件: 字幕を画面下部中央に重ねる（白文字＋黒シャドウ） -->
-      <div id="subtitle" aria-live="polite"></div>
-    </main>
-
-    <footer>
-      WebSocket: バイナリで2秒ごとの音声データを送信し、サーバからの翻訳結果(JSON)を字幕に表示します。PDFはpdf.jsで下部に表示しています。
-    </footer>
-  </div>
 </body>
 </html>
