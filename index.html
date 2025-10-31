@@ -57,12 +57,19 @@
     }
     /* 録音中のスタートボタンのスタイル */
     header button#startBtn.recording {
-      background: #38a169;
+      background: #e53e3e;
       animation: pulse 1.5s ease-in-out infinite;
+      box-shadow: 0 0 10px rgba(229, 62, 62, 0.5);
     }
     @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.7; }
+      0%, 100% {
+        opacity: 1;
+        box-shadow: 0 0 10px rgba(229, 62, 62, 0.5);
+      }
+      50% {
+        opacity: 0.8;
+        box-shadow: 0 0 20px rgba(229, 62, 62, 0.8);
+      }
     }
     header select {
       padding: 8px 12px;
@@ -77,37 +84,23 @@
       min-width: 150px;
       font-size: 13px;
       color: #aaa;
+      font-weight: 500;
+    }
+    #status.recording {
+      color: #fc8181;
+      font-weight: 600;
     }
 
-    /* ========== メインエリア（2カラム表示） ========== */
+    /* ========== メインエリア（翻訳結果表示） ========== */
     main {
       flex: 1;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 2px;
-      overflow: hidden;
-      position: relative;
-      background: #2a2a2a;
-    }
-
-    .output-panel {
       display: flex;
       flex-direction: column;
-      background: #121212;
       overflow: hidden;
+      position: relative;
     }
 
-    .panel-header {
-      padding: 12px 16px;
-      background: #1a1a1a;
-      border-bottom: 1px solid #2a2a2a;
-      font-size: 16px;
-      font-weight: 600;
-      text-align: center;
-      color: #aaa;
-    }
-
-    .panel-content {
+    #translation-output {
       flex: 1;
       padding: 24px;
       overflow-y: auto;
@@ -118,21 +111,16 @@
     }
 
     /* 文字サイズのクラス */
-    .panel-content.size-small { font-size: 18px; }
-    .panel-content.size-medium { font-size: 28px; }
-    .panel-content.size-large { font-size: 42px; }
-    .panel-content.size-xlarge { font-size: 56px; }
+    #translation-output.size-small { font-size: 18px; }
+    #translation-output.size-medium { font-size: 28px; }
+    #translation-output.size-large { font-size: 42px; }
+    #translation-output.size-xlarge { font-size: 56px; }
 
     /* プレースホルダー表示 */
-    .panel-content:empty::before {
+    #translation-output:empty::before {
+      content: "English translation will appear here...";
       color: #555;
       font-style: italic;
-    }
-    #japanese-output:empty::before {
-      content: "日本語の文字起こしがここに表示されます...";
-    }
-    #english-output:empty::before {
-      content: "English translation will appear here...";
     }
 
     /* ========== フッター ========== */
@@ -146,17 +134,17 @@
     }
 
     /* ========== スクロールバーのスタイル（Webkit系ブラウザ） ========== */
-    .panel-content::-webkit-scrollbar {
+    #translation-output::-webkit-scrollbar {
       width: 10px;
     }
-    .panel-content::-webkit-scrollbar-track {
+    #translation-output::-webkit-scrollbar-track {
       background: #1a1a1a;
     }
-    .panel-content::-webkit-scrollbar-thumb {
+    #translation-output::-webkit-scrollbar-thumb {
       background: #444;
       border-radius: 5px;
     }
-    .panel-content::-webkit-scrollbar-thumb:hover {
+    #translation-output::-webkit-scrollbar-thumb:hover {
       background: #555;
     }
   </style>
@@ -169,6 +157,15 @@
 
       <!-- クリアボタン -->
       <button class="danger" onclick="clearTranslation()">Clear</button>
+
+      <!-- 翻訳頻度選択 -->
+      <label for="segmentInterval" style="color: #aaa; font-size: 13px;">Interval:</label>
+      <select id="segmentInterval">
+        <option value="5000">5 sec</option>
+        <option value="10000" selected>10 sec</option>
+        <option value="15000">15 sec</option>
+        <option value="20000">20 sec</option>
+      </select>
 
       <!-- 文字サイズ選択 -->
       <label for="fontSize" style="color: #aaa; font-size: 13px;">Font Size:</label>
@@ -184,17 +181,8 @@
     </header>
 
     <main>
-      <!-- 左側: 日本語文字起こし -->
-      <div class="output-panel">
-        <div class="panel-header">日本語 (Japanese)</div>
-        <div id="japanese-output" class="panel-content size-medium"></div>
-      </div>
-
-      <!-- 右側: 英語翻訳 -->
-      <div class="output-panel">
-        <div class="panel-header">英語 (English)</div>
-        <div id="english-output" class="panel-content size-medium"></div>
-      </div>
+      <!-- 翻訳結果表示エリア -->
+      <div id="translation-output" class="size-medium"></div>
     </main>
 
     <footer>
@@ -208,7 +196,6 @@
     let ws = null;
     let isRecording = false;
     let mime = '';
-    const SEGMENT_MS = 10000; // 音声チャンク送信間隔（ミリ秒）: 10秒ごと
 
     // WebSocket URL
     function getWsUrl() {
@@ -244,8 +231,7 @@
       if (isRecording) return;
 
       // 録音開始時に前回のテキスト履歴をリセット
-      lastDisplayedJapanese = '';
-      lastDisplayedEnglish = '';
+      lastDisplayedText = '';
 
       try {
         // 1) WebSocket接続
@@ -273,8 +259,8 @@
         ws.onmessage = (ev) => {
           try {
             const data = JSON.parse(ev.data);
-            if (data.japanese !== undefined && data.english !== undefined) {
-              appendTranslation(data.japanese, data.english);
+            if (data.english !== undefined) {
+              appendTranslation('', data.english);
             } else if (data.error) {
               console.error('Server error:', data.error);
               updateStatus('Error: ' + data.error);
@@ -304,15 +290,19 @@
           ws.send(buf); // バイナリを /ws へ送信
         });
 
-        // SEGMENT_MSごとにデータを区切って送信
-        mediaRecorder.start(SEGMENT_MS);
+        // 選択された間隔でデータを区切って送信
+        const segmentSelect = document.getElementById('segmentInterval');
+        const segmentMs = parseInt(segmentSelect.value);
+        mediaRecorder.start(segmentMs);
         isRecording = true;
 
         // UIを更新
         const startBtn = document.getElementById('startBtn');
+        const statusEl = document.getElementById('status');
         startBtn.textContent = 'Stop Recording';
         startBtn.classList.add('recording');
-        updateStatus(`Recording... (${mime || 'default'}, ${SEGMENT_MS / 1000}s chunks)`);
+        statusEl.classList.add('recording');
+        updateStatus(`🔴 Recording... (${mime || 'default'}, ${segmentMs / 1000}s chunks)`);
 
       } catch (error) {
         console.error('Failed to start recording:', error);
@@ -344,112 +334,76 @@
 
       // UIを更新
       const startBtn = document.getElementById('startBtn');
+      const statusEl = document.getElementById('status');
       startBtn.textContent = 'Start Recording';
       startBtn.classList.remove('recording');
+      statusEl.classList.remove('recording');
       updateStatus('Stopped');
     }
 
     // ========== 前回表示したテキストを保持（重複除外用） ==========
-    let lastDisplayedJapanese = '';
-    let lastDisplayedEnglish = '';
+    let lastDisplayedText = '';
 
-    // ========== 翻訳結果をリアルタイムで追記（日本語と英語を同期） ==========
+    // ========== 翻訳結果をリアルタイムで追記 ==========
     function appendTranslation(japaneseText, englishText) {
-      const japaneseEl = document.getElementById('japanese-output');
-      const englishEl = document.getElementById('english-output');
+      const outputEl = document.getElementById('translation-output');
 
-      // 全体をtrimして空チェック
-      const trimmedJa = (japaneseText || '').trim();
-      const trimmedEn = (englishText || '').trim();
+      // 英語テキストのみ使用
+      const trimmedText = (englishText || '').trim();
 
-      // 両方とも空なら何もしない
-      if (!trimmedJa && !trimmedEn) return;
+      // 空なら何もしない
+      if (!trimmedText) return;
 
-      // 日本語テキストの処理
-      let newJaText = '';
-      if (trimmedJa && trimmedJa !== lastDisplayedJapanese) {
-        // 前回のテキストが新しいテキストの先頭に含まれている場合は差分のみ取得
-        if (lastDisplayedJapanese && trimmedJa.startsWith(lastDisplayedJapanese)) {
-          // 差分を取得（trimせずに空白も保持）
-          newJaText = trimmedJa.substring(lastDisplayedJapanese.length);
-          // 先頭の空白のみ削除（句点などは保持）
-          newJaText = newJaText.replace(/^\s+/, '');
-        } else {
-          newJaText = trimmedJa;
-        }
+      // 前回と同じなら何もしない
+      if (trimmedText === lastDisplayedText) return;
+
+      // 差分を取得
+      let newText = '';
+      if (lastDisplayedText && trimmedText.startsWith(lastDisplayedText)) {
+        // 差分を取得（trimせずに空白も保持）
+        newText = trimmedText.substring(lastDisplayedText.length);
+        // 先頭の空白のみ削除
+        newText = newText.replace(/^\s+/, '');
+      } else {
+        newText = trimmedText;
       }
 
-      // 英語テキストの処理
-      let newEnText = '';
-      if (trimmedEn && trimmedEn !== lastDisplayedEnglish) {
-        // 前回のテキストが新しいテキストの先頭に含まれている場合は差分のみ取得
-        if (lastDisplayedEnglish && trimmedEn.startsWith(lastDisplayedEnglish)) {
-          // 差分を取得（trimせずに空白も保持）
-          newEnText = trimmedEn.substring(lastDisplayedEnglish.length);
-          // 先頭の空白のみ削除
-          newEnText = newEnText.replace(/^\s+/, '');
-        } else {
-          newEnText = trimmedEn;
-        }
-      }
-
-      // 日本語を表示
-      if (newJaText) {
-        // 日本語は句読点で改行（全角・半角両方に対応、スペース不要）
-        const processedJa = newJaText.replace(/([。！？!?])/g, '$1\n');
-        if (japaneseEl.textContent) {
-          japaneseEl.textContent += '\n' + processedJa;
-        } else {
-          japaneseEl.textContent = processedJa;
-        }
-        // 自動スクロール
-        japaneseEl.scrollTop = japaneseEl.scrollHeight;
-        // 最後に表示したテキストを更新
-        lastDisplayedJapanese = trimmedJa;
-      }
-
-      // 英語を表示
-      if (newEnText) {
+      // 表示
+      if (newText) {
         // 改行ロジック: ピリオド、疑問符、感嘆符の後にスペースがある場合は改行
-        const processedEn = newEnText.replace(/([.!?])\s+/g, '$1\n');
-        if (englishEl.textContent) {
-          englishEl.textContent += '\n' + processedEn;
+        const processedText = newText.replace(/([.!?])\s+/g, '$1\n');
+        if (outputEl.textContent) {
+          outputEl.textContent += '\n' + processedText;
         } else {
-          englishEl.textContent = processedEn;
+          outputEl.textContent = processedText;
         }
         // 自動スクロール
-        englishEl.scrollTop = englishEl.scrollHeight;
+        outputEl.scrollTop = outputEl.scrollHeight;
         // 最後に表示したテキストを更新
-        lastDisplayedEnglish = trimmedEn;
+        lastDisplayedText = trimmedText;
       }
     }
 
     // ========== 翻訳結果をクリア ==========
     function clearTranslation() {
-      const japaneseEl = document.getElementById('japanese-output');
-      const englishEl = document.getElementById('english-output');
-      japaneseEl.textContent = '';
-      englishEl.textContent = '';
+      const outputEl = document.getElementById('translation-output');
+      outputEl.textContent = '';
       // 前回表示テキストもリセット
-      lastDisplayedJapanese = '';
-      lastDisplayedEnglish = '';
+      lastDisplayedText = '';
       updateStatus('Translation output cleared');
     }
 
     // ========== 文字サイズ変更 ==========
     function changeFontSize() {
-      const japaneseEl = document.getElementById('japanese-output');
-      const englishEl = document.getElementById('english-output');
+      const outputEl = document.getElementById('translation-output');
       const select = document.getElementById('fontSize');
       const size = select.value;
 
       // 既存のサイズクラスを削除
-      japaneseEl.classList.remove('size-small', 'size-medium', 'size-large', 'size-xlarge');
-      englishEl.classList.remove('size-small', 'size-medium', 'size-large', 'size-xlarge');
+      outputEl.classList.remove('size-small', 'size-medium', 'size-large', 'size-xlarge');
 
       // 新しいサイズクラスを追加
-      japaneseEl.classList.add('size-' + size);
-      englishEl.classList.add('size-' + size);
+      outputEl.classList.add('size-' + size);
     }
 
     // ========== ステータス更新 ==========

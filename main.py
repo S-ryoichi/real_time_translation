@@ -52,8 +52,8 @@ def load_model_on_startup():
     app.state.device = device
 
 
-async def _transcribe_bytes_async(audio_bytes: bytes, *, suffix: str = ".webm") -> dict:
-    """Transcribe given audio bytes and return both Japanese and English text.
+async def _transcribe_bytes_async(audio_bytes: bytes, *, suffix: str = ".webm") -> str:
+    """Transcribe given audio bytes and return English translation.
 
     This runs the blocking Whisper call in a thread to avoid blocking the event loop.
 
@@ -61,7 +61,7 @@ async def _transcribe_bytes_async(audio_bytes: bytes, *, suffix: str = ".webm") 
         audio_bytes: raw audio data (e.g., 2s chunk from client). Default assumes webm/ogg-like container.
         suffix: temp file suffix to help ffmpeg detect format. MediaRecorder often yields webm/ogg.
     Returns:
-        Dict with "japanese" and "english" keys (possibly empty strings if nothing recognized).
+        English translation text (possibly empty string if nothing recognized).
     """
 
     # Access model/device from app.state
@@ -100,7 +100,7 @@ async def _transcribe_bytes_async(audio_bytes: bytes, *, suffix: str = ".webm") 
                     pass
             raise
 
-    def _blocking_transcribe() -> dict:
+    def _blocking_transcribe() -> str:
         tmp_path = None
         try:
             with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -109,23 +109,14 @@ async def _transcribe_bytes_async(audio_bytes: bytes, *, suffix: str = ".webm") 
             # Convert to WAV for more robust decoding of short MediaRecorder chunks
             wav_path = _ffmpeg_convert_to_wav(tmp_path)
             try:
-                # First, get Japanese transcription
-                result_ja = model.transcribe(
-                    wav_path,
-                    task="transcribe",
-                    language="ja",
-                    fp16=(device == "cuda"),
-                )
-                japanese_text = (result_ja.get("text") or "").strip()
-
-                # Then, get English translation
-                result_en = model.transcribe(
+                # Get English translation
+                result = model.transcribe(
                     wav_path,
                     task="translate",
                     language="ja",
                     fp16=(device == "cuda"),
                 )
-                english_text = (result_en.get("text") or "").strip()
+                english_text = (result.get("text") or "").strip()
 
             finally:
                 if wav_path and os.path.exists(wav_path):
@@ -133,7 +124,7 @@ async def _transcribe_bytes_async(audio_bytes: bytes, *, suffix: str = ".webm") 
                         os.remove(wav_path)
                     except Exception:
                         pass
-            return {"japanese": japanese_text, "english": english_text}
+            return english_text
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 try:
@@ -245,11 +236,11 @@ async def ws_translate(websocket: WebSocket):
 
     Client flow (example):
     - Connect to /ws
-    - Every ~2s, send a binary message containing recorded audio bytes (e.g., MediaRecorder chunks)
-    - Receive JSON {"japanese": "日本語テキスト", "english": "translated text"} per chunk
+    - Every ~10s, send a binary message containing recorded audio bytes (e.g., MediaRecorder chunks)
+    - Receive JSON {"english": "translated text"} per chunk
 
     Notes:
-    - This implementation returns both Japanese transcription and English translation.
+    - This implementation returns only English translation (no Japanese transcription).
     - For best compatibility with MediaRecorder, we assume WEBM/OGG container by default.
     - If your client sends WAV/MP3, adjust the suffix or send a small text control message first with the mime.
     """
@@ -281,8 +272,7 @@ async def ws_translate(websocket: WebSocket):
                 try:
                     result = await _transcribe_bytes_async(bytes(buffer_bytes), suffix=mime_suffix)
                     await websocket.send_json({
-                        "japanese": result.get("japanese", ""),
-                        "english": result.get("english", "")
+                        "english": result
                     })
                 except Exception as e:
                     await websocket.send_json({"error": f"transcription_failed: {e}"})
