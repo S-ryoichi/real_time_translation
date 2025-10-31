@@ -79,6 +79,11 @@
       color: #eee;
       font-size: 14px;
     }
+    header select:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      background: #0f0f0f;
+    }
     #status {
       flex: 1;
       min-width: 150px;
@@ -162,8 +167,8 @@
       <label for="segmentInterval" style="color: #aaa; font-size: 13px;">Interval:</label>
       <select id="segmentInterval">
         <option value="5000">5 sec</option>
-        <option value="10000" selected>10 sec</option>
-        <option value="15000">15 sec</option>
+        <option value="10000">10 sec</option>
+        <option value="15000" selected>15 sec</option>
         <option value="20000">20 sec</option>
       </select>
 
@@ -230,9 +235,6 @@
     async function startRecording() {
       if (isRecording) return;
 
-      // 録音開始時に前回のテキスト履歴をリセット
-      lastDisplayedText = '';
-
       try {
         // 1) WebSocket接続
         const url = getWsUrl();
@@ -240,33 +242,39 @@
         ws.binaryType = 'arraybuffer';
 
         ws.onopen = () => {
-          console.log('WebSocket connected:', url);
+          // console.log('WebSocket connected:', url);
           updateStatus('WebSocket connected');
           // サーバ側のバッファをリセット
           try { ws.send('reset'); } catch {}
         };
 
         ws.onclose = () => {
-          console.log('WebSocket closed');
+          // console.log('WebSocket closed');
           updateStatus('WebSocket closed');
         };
 
         ws.onerror = (e) => {
-          console.error('WebSocket error', e);
+          // console.error('WebSocket error', e);
           updateStatus('WebSocket error');
         };
 
         ws.onmessage = (ev) => {
           try {
             const data = JSON.parse(ev.data);
-            if (data.english !== undefined) {
+            // console.log('[DEBUG] Received WebSocket message:', data);
+            if (data.status === "processing") {
+              // Ignore processing status messages (keepalive)
+              // console.log('[DEBUG] Processing status received');
+              return;
+            } else if (data.english !== undefined) {
+              // console.log('[DEBUG] English translation received:', data.english);
               appendTranslation('', data.english);
             } else if (data.error) {
               console.error('Server error:', data.error);
               updateStatus('Error: ' + data.error);
             }
           } catch (err) {
-            console.warn('Non-JSON message:', ev.data);
+            // console.warn('Non-JSON message:', ev.data);
           }
         };
 
@@ -283,25 +291,65 @@
         } catch {}
 
         // 3) MediaRecorderのデータ送信
+        // onstop時に完全なWebMファイルを送信する方式に変更
+        let recordingTimeout = null;
+
         mediaRecorder.addEventListener('dataavailable', async (ev) => {
-          if (!ev.data || ev.data.size === 0) return;
-          if (!ws || ws.readyState !== WebSocket.OPEN) return;
+          // console.log('[DEBUG] dataavailable event fired, size:', ev.data?.size);
+          if (!ev.data || ev.data.size === 0) {
+            // console.warn('[DEBUG] Empty audio data, skipping');
+            return;
+          }
+          if (!ws || ws.readyState !== WebSocket.OPEN) {
+            // console.warn('[DEBUG] WebSocket not open, state:', ws?.readyState);
+            return;
+          }
           const buf = await ev.data.arrayBuffer();
+          // console.log('[DEBUG] Sending audio chunk, bytes:', buf.byteLength);
           ws.send(buf); // バイナリを /ws へ送信
         });
 
         // 選択された間隔でデータを区切って送信
         const segmentSelect = document.getElementById('segmentInterval');
         const segmentMs = parseInt(segmentSelect.value);
-        mediaRecorder.start(segmentMs);
+
+        // MediaRecorderを自動的に停止/再起動して完全なWebMチャンクを生成
+        function scheduleRecordingCycle() {
+          if (!isRecording || !mediaRecorder) return;
+
+          window.recordingTimeout = setTimeout(() => {
+            if (!isRecording || !mediaRecorder || mediaRecorder.state !== 'recording') return;
+
+            // console.log('[DEBUG] Stopping MediaRecorder to finalize chunk...');
+            mediaRecorder.stop();
+
+            // データが送信されるまで少し待ってから再起動
+            setTimeout(() => {
+              if (!isRecording || !mediaRecorder) return;
+              // console.log('[DEBUG] Restarting MediaRecorder...');
+              mediaRecorder.start();
+              scheduleRecordingCycle();
+            }, 100);
+          }, segmentMs);
+        }
+
+        mediaRecorder.start();
         isRecording = true;
+        scheduleRecordingCycle();
 
         // UIを更新
         const startBtn = document.getElementById('startBtn');
         const statusEl = document.getElementById('status');
+        const fontSizeSelect = document.getElementById('fontSize');
+
         startBtn.textContent = 'Stop Recording';
         startBtn.classList.add('recording');
         statusEl.classList.add('recording');
+
+        // 録音中は設定変更を無効化
+        segmentSelect.disabled = true;
+        fontSizeSelect.disabled = true;
+
         updateStatus(`🔴 Recording... (${mime || 'default'}, ${segmentMs / 1000}s chunks)`);
 
       } catch (error) {
@@ -314,6 +362,12 @@
     // ========== 録音停止 ==========
     function stopRecording() {
       if (!isRecording) return;
+
+      // タイムアウトをクリア
+      if (window.recordingTimeout) {
+        clearTimeout(window.recordingTimeout);
+        window.recordingTimeout = null;
+      }
 
       try {
         if (mediaRecorder) {
@@ -335,14 +389,19 @@
       // UIを更新
       const startBtn = document.getElementById('startBtn');
       const statusEl = document.getElementById('status');
+      const segmentSelect = document.getElementById('segmentInterval');
+      const fontSizeSelect = document.getElementById('fontSize');
+
       startBtn.textContent = 'Start Recording';
       startBtn.classList.remove('recording');
       statusEl.classList.remove('recording');
+
+      // 録音停止時は設定変更を有効化
+      segmentSelect.disabled = false;
+      fontSizeSelect.disabled = false;
+
       updateStatus('Stopped');
     }
-
-    // ========== 前回表示したテキストを保持（重複除外用） ==========
-    let lastDisplayedText = '';
 
     // ========== 翻訳結果をリアルタイムで追記 ==========
     function appendTranslation(japaneseText, englishText) {
@@ -354,42 +413,25 @@
       // 空なら何もしない
       if (!trimmedText) return;
 
-      // 前回と同じなら何もしない
-      if (trimmedText === lastDisplayedText) return;
+      // 各チャンクを独立して表示（累積なし）
+      // 改行ロジック: ピリオド、疑問符、感嘆符の後にスペースがある場合は改行
+      const processedText = trimmedText.replace(/([.!?])\s+/g, '$1\n');
 
-      // 差分を取得
-      let newText = '';
-      if (lastDisplayedText && trimmedText.startsWith(lastDisplayedText)) {
-        // 差分を取得（trimせずに空白も保持）
-        newText = trimmedText.substring(lastDisplayedText.length);
-        // 先頭の空白のみ削除
-        newText = newText.replace(/^\s+/, '');
+      if (outputEl.textContent) {
+        // スペースを追加して連結
+        outputEl.textContent += ' ' + processedText;
       } else {
-        newText = trimmedText;
+        outputEl.textContent = processedText;
       }
 
-      // 表示
-      if (newText) {
-        // 改行ロジック: ピリオド、疑問符、感嘆符の後にスペースがある場合は改行
-        const processedText = newText.replace(/([.!?])\s+/g, '$1\n');
-        if (outputEl.textContent) {
-          outputEl.textContent += '\n' + processedText;
-        } else {
-          outputEl.textContent = processedText;
-        }
-        // 自動スクロール
-        outputEl.scrollTop = outputEl.scrollHeight;
-        // 最後に表示したテキストを更新
-        lastDisplayedText = trimmedText;
-      }
+      // 自動スクロール
+      outputEl.scrollTop = outputEl.scrollHeight;
     }
 
     // ========== 翻訳結果をクリア ==========
     function clearTranslation() {
       const outputEl = document.getElementById('translation-output');
       outputEl.textContent = '';
-      // 前回表示テキストもリセット
-      lastDisplayedText = '';
       updateStatus('Translation output cleared');
     }
 

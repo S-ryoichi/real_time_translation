@@ -65,7 +65,45 @@ source venv/bin/activate
 
 仮想環境が有効化されると、ターミナルのプロンプトの先頭に `(venv)` が表示されます。
 
-### 3. 依存パッケージのインストール
+### 3. 環境変数の設定（オプション）
+
+Whisperモデルをカスタマイズしたい場合は、`.env`ファイルを作成します。
+
+```bash
+# .env.exampleをコピーして.envファイルを作成
+cp .env.example .env
+```
+
+`.env`ファイルを編集して、使用するモデルやログレベルを指定します:
+
+```bash
+# Whisperモデルの設定（例: smallモデルを使用する場合）
+WHISPER_MODEL=small
+
+# ログレベルの設定（例: DEBUGモードで詳細ログを表示）
+LOG_LEVEL=INFO
+```
+
+**利用可能なモデル:**
+- `tiny`: 最も高速だが精度は低め
+- `base`: 高速で軽量
+- `small`: バランス型（デフォルト、推奨）
+- `medium`: 高精度だが重い
+- `large`: 最高精度だが非常に重い
+- `large-v2`, `large-v3`: largeの改良版
+
+**利用可能なログレベル:**
+- `DEBUG`: 詳細なデバッグ情報（音声処理の詳細ログ）
+- `INFO`: 一般的な情報（デフォルト、推奨）
+- `WARNING`: 警告メッセージのみ
+- `ERROR`: エラーメッセージのみ
+- `CRITICAL`: 致命的なエラーのみ
+
+**注意**:
+- `.env`ファイルがない場合や、無効な値が設定されている場合は、自動的にデフォルト値（`WHISPER_MODEL=small`, `LOG_LEVEL=INFO`）が使用されます。
+- `LOG_LEVEL=DEBUG`は大量のログが出力されるため、問題のデバッグ時のみ使用してください。
+
+### 4. 依存パッケージのインストール
 
 ```bash
 pip install -r requirements.txt
@@ -95,7 +133,7 @@ Homebrewを使用している場合:
 brew install ffmpeg
 ```
 
-### 4. インストールの確認
+### 5. インストールの確認
 
 以下のコマンドで、必要なパッケージがインストールされているか確認できます。
 
@@ -106,7 +144,7 @@ pip list | grep -E "fastapi|uvicorn|whisper|torch"
 または
 
 ```bash
-pip show fastapi uvicorn openai-whisper
+pip show fastapi uvicorn openai-whisper python-dotenv
 ```
 
 ---
@@ -136,7 +174,20 @@ INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 ```
 
-初回起動時は、Whisperの`small`モデルがダウンロードされるため、数分かかる場合があります。
+初回起動時は、Whisperモデル（デフォルトは`small`）がダウンロードされるため、数分かかる場合があります。
+
+**起動時のログで使用モデルを確認:**
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [12345] using StatReload
+INFO:     Started server process [12346]
+INFO:     Waiting for application startup.
+[INFO] Loading Whisper model: small
+[INFO] Whisper model 'small' loaded successfully on cpu
+INFO:     Application startup complete.
+```
+
+ログレベルを`DEBUG`に設定すると、音声処理の詳細ログが表示されます。
 
 ### 2. ブラウザでアクセス
 
@@ -249,6 +300,8 @@ real_time_translation/
 ├── main.py              # FastAPIバックエンド
 ├── index.html           # フロントエンドUI
 ├── requirements.txt     # Python依存パッケージ
+├── .env.example         # 環境変数のサンプル
+├── .env                 # 環境変数設定（ユーザーが作成）
 ├── README.md            # このファイル
 └── 要件定義.md          # プロジェクト仕様書
 ```
@@ -267,15 +320,33 @@ const SEGMENT_MS = 10000; // 10秒 → 好きな値に変更（ミリ秒）
 
 #### Whisperモデルの変更
 
-[main.py:53](main.py#L53)の`model_name`を変更:
+`.env`ファイルで`WHISPER_MODEL`を設定:
 
-```python
-model_name = "small"  # tiny, base, small, medium, large から選択
+```bash
+# .envファイルを編集
+WHISPER_MODEL=small  # tiny, base, small, medium, large, large-v2, large-v3 から選択
 ```
 
 - `tiny`, `base`: 高速だが精度低め
 - `small`: バランス型（デフォルト）
 - `medium`, `large`: 高精度だが処理が重い
+
+設定後、サーバーを再起動して反映させてください。
+
+#### ログレベルの変更
+
+`.env`ファイルで`LOG_LEVEL`を設定:
+
+```bash
+# .envファイルを編集
+LOG_LEVEL=DEBUG  # DEBUG, INFO, WARNING, ERROR, CRITICAL から選択
+```
+
+- `DEBUG`: 音声処理の詳細ログを表示（デバッグ時に有用）
+- `INFO`: 一般的な情報のみ表示（推奨）
+- `WARNING`以上: エラー関連のみ表示
+
+設定後、サーバーを再起動して反映させてください。
 
 ---
 
